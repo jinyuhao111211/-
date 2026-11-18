@@ -15,8 +15,8 @@
 <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-<!-- 登录 / 注册 -->
-<div class="auth" id="auth-screen">
+<!-- 登录 / 注册（默认关闭，仅在开启 REQUIRE_LOGIN 时出现） -->
+<div class="auth hidden" id="auth-screen">
   <div class="auth-card">
     <div class="auth-brand">
       <span class="logo" aria-hidden="true">
@@ -342,7 +342,7 @@
         </div>
       </div>
 
-      <div class="grid-2">
+      <div class="grid-2" id="account-grid" hidden>
         <div class="card">
           <div class="card-head">
             <h2>我的账号</h2>

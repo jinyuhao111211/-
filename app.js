@@ -1233,24 +1233,39 @@
   }
 
   function enterApp(user) {
-    currentUser = user.username;
-    isAdmin = user.role === 'admin';
+    const guest = Boolean(user && user.guest);
+    currentUser = guest ? '' : user.username;
+    isAdmin = guest ? false : user.role === 'admin';
+    if (guest) migrateGuestData();
     loadUserData();
 
     $('#auth-screen').hidden = true;
     $('#app').classList.remove('hidden');
 
     const chip = $('#user-chip');
-    chip.hidden = false;
+    chip.hidden = guest;
     chip.textContent = currentUser;
     chip.classList.toggle('admin', isAdmin);
-    $('#acct-name').textContent = currentUser;
+    $('#account-grid').hidden = guest;
+    $('#acct-name').textContent = currentUser || '—';
     $('#acct-role-text').textContent = isAdmin ? '管理员' : '普通用户';
     $('#acct-role').textContent = isAdmin ? 'admin' : 'user';
     $('#admin-card').hidden = !isAdmin;
 
     startApp();
-    if (isAdmin) loadUsersList();
+    if (isAdmin && !guest) loadUsersList();
+  }
+
+  /** 从「需要登录」版本升级过来时，把 admin 名下的本机数据搬到公共空间 */
+  function migrateGuestData() {
+    try {
+      [LS.roster, LS.records, LS.settings].forEach((k) => {
+        if (localStorage.getItem(k) === null) {
+          const old = localStorage.getItem(k + '::admin');
+          if (old !== null) localStorage.setItem(k, old);
+        }
+      });
+    } catch (e) {}
   }
 
   function startApp() {

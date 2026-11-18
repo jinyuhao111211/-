@@ -1,0 +1,16 @@
+{
+  "name": "homework-grader",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AI 作业批改台：拍照/批量上传作业，逐题批改并生成学情报告",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "playwright-core": "^1.65.1"
+  }
+}

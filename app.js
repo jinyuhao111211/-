@@ -14,8 +14,7 @@
 
   /* ---------------------- 状态 ---------------------- */
   const defaultSettings = { model: 'agnes-2.5-flash', subject: '数学', fullScore: 100, extraPrompt: '', apiKey: '', apiBase: '' };
-  let currentUser = '';
-  let isAdmin = false;
+  let currentUser = ''; // 已取消登录，始终为空（localStorage 用公共 key）
   /** 纯静态托管（GitHub Pages 等没有后端）时为 true，批改走浏览器直连 AI */
   let STANDALONE = false;
   const lsKey = (k) => (currentUser ? k + '::' + currentUser : k);
@@ -409,10 +408,6 @@
             apiBase: localBase(),
           }),
         });
-        if (res.status === 401) {
-          showAuth('login');
-          throw new Error('登录已失效，请重新登录');
-        }
         const j = await res.json();
         if (!res.ok || !j.ok) throw new Error(j.error || '批改失败');
         result = j.data;
@@ -1234,70 +1229,18 @@
   $('#banner-go').addEventListener('click', () => go('settings'));
 
   /* ===================================================================
-   * 初始化
+   * 启动
    * =================================================================== */
-  /* ===================================================================
-   * 登录 / 注册 / 账号
-   * =================================================================== */
-  async function postJSON(url, body) {
-    const r = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body || {}),
-    });
-    let j = null;
-    try {
-      j = await r.json();
-    } catch (e) {}
-    return { ok: r.ok, status: r.status, data: j };
-  }
-
-  function showAuth(tab) {
-    window.__APP_READY = true;
-    $('#boot-fail').hidden = true;
-    $('#auth-screen').hidden = false;
-    $('#app').classList.add('hidden');
-    switchAuthTab(tab || 'login');
-  }
-
-  function switchAuthTab(which) {
-    $$('.auth-tab').forEach((b) => b.classList.toggle('active', b.dataset.auth === which));
-    $('#form-login').classList.toggle('hidden', which !== 'login');
-    $('#form-register').classList.toggle('hidden', which !== 'register');
-    $('#login-msg').textContent = '';
-    $('#reg-msg').textContent = '';
-  }
-
-  function authMsg(el, text, kind) {
-    const node = $(el);
-    node.textContent = text || '';
-    node.className = 'auth-msg' + (kind === 'err' ? ' err' : kind === 'ok' ? ' ok' : '');
-  }
-
-  function enterApp(user) {
-    const guest = Boolean(user && user.guest);
-    currentUser = guest ? '' : user.username;
-    isAdmin = guest ? false : user.role === 'admin';
-    if (guest) migrateGuestData();
-    loadUserData();
-
-    $('#auth-screen').hidden = true;
-    $('#app').classList.remove('hidden');
-    window.__APP_READY = true;
-    if ($('#boot-fail')) $('#boot-fail').hidden = true;
-
-    const chip = $('#user-chip');
-    chip.hidden = guest;
-    chip.textContent = currentUser;
-    chip.classList.toggle('admin', isAdmin);
-    $('#account-grid').hidden = guest;
-    $('#acct-name').textContent = currentUser || '—';
-    $('#acct-role-text').textContent = isAdmin ? '管理员' : '普通用户';
-    $('#acct-role').textContent = isAdmin ? 'admin' : 'user';
-    $('#admin-card').hidden = !isAdmin;
-
-    startApp();
-    if (isAdmin && !guest) loadUsersList();
+  function startApp() {
+    renderClassSelects();
+    renderSettings();
+    renderRoster();
+    renderResults();
+    renderHero();
+    renderQueue();
+    checkHealth();
+    const h = (location.hash || '').replace('#', '');
+    if (h && document.getElementById('view-' + h)) go(h, true);
   }
 
   /** 从「需要登录」版本升级过来时，把 admin 名下的本机数据搬到公共空间 */
@@ -1312,148 +1255,6 @@
     } catch (e) {}
   }
 
-  function startApp() {
-    renderClassSelects();
-    renderSettings();
-    renderRoster();
-    renderResults();
-    renderHero();
-    renderQueue();
-    checkHealth();
-    const h = (location.hash || '').replace('#', '');
-    if (h && document.getElementById('view-' + h)) go(h, true);
-  }
-
-  $$('.auth-tab').forEach((b) => b.addEventListener('click', () => switchAuthTab(b.dataset.auth)));
-
-  $('#form-login').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const username = $('#login-user').value.trim();
-    const password = $('#login-pass').value;
-    if (!username || !password) return authMsg('#login-msg', '请填写用户名和密码', 'err');
-    const btn = $('#btn-login');
-    btn.disabled = true;
-    btn.classList.add('busy');
-    try {
-      const r = await postJSON('api/login', { username, password });
-      if (!r.ok) throw new Error((r.data && r.data.error) || '登录失败');
-      authMsg('#login-msg', '');
-      $('#login-pass').value = '';
-      enterApp(r.data.user);
-      toast('欢迎回来，' + r.data.user.username);
-    } catch (err) {
-      authMsg('#login-msg', err.message, 'err');
-    } finally {
-      btn.disabled = false;
-      btn.classList.remove('busy');
-    }
-  });
-
-  $('#form-register').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const username = $('#reg-user').value.trim();
-    const password = $('#reg-pass').value;
-    if (!username || !password) return authMsg('#reg-msg', '请填写用户名和密码', 'err');
-    const btn = $('#btn-register');
-    btn.disabled = true;
-    btn.classList.add('busy');
-    try {
-      const r = await postJSON('api/register', { username, password });
-      if (!r.ok) throw new Error((r.data && r.data.error) || '注册失败');
-      authMsg('#reg-msg', '');
-      $('#reg-pass').value = '';
-      enterApp(r.data.user);
-      toast('注册成功，已登录');
-    } catch (err) {
-      authMsg('#reg-msg', err.message, 'err');
-    } finally {
-      btn.disabled = false;
-      btn.classList.remove('busy');
-    }
-  });
-
-  $('#btn-logout').addEventListener('click', async () => {
-    if (!confirm('确定退出登录吗？')) return;
-    try {
-      await fetch('api/logout', { method: 'POST' });
-    } catch (e) {}
-    currentUser = '';
-    isAdmin = false;
-    state.roster = emptyRoster();
-    state.records = [];
-    state.settings = Object.assign({}, defaultSettings);
-    state.queue = [];
-    $('#user-chip').hidden = true;
-    $('#login-user').value = currentUser;
-    $('#login-pass').value = '';
-    showAuth('login');
-    toast('已退出登录');
-  });
-
-  $('#btn-change-pwd').addEventListener('click', async () => {
-    const oldPassword = $('#pwd-old').value;
-    const newPassword = $('#pwd-new').value;
-    const msg = $('#pwd-msg');
-    if (!oldPassword || !newPassword) {
-      msg.className = 'muted small msg-err';
-      msg.textContent = '请填写原密码和新密码';
-      return;
-    }
-    if (newPassword.length < 6) {
-      msg.className = 'muted small msg-err';
-      msg.textContent = '新密码至少 6 位';
-      return;
-    }
-    const r = await postJSON('api/password', { oldPassword, newPassword });
-    if (r.ok) {
-      $('#pwd-old').value = '';
-      $('#pwd-new').value = '';
-      msg.className = 'muted small msg-ok';
-      msg.textContent = '密码已修改';
-      toast('密码已修改');
-    } else {
-      msg.className = 'muted small msg-err';
-      msg.textContent = (r.data && r.data.error) || '修改失败';
-    }
-  });
-
-  /* ---------------- 管理员：用户列表 ---------------- */
-  async function loadUsersList() {
-    if (!isAdmin) return;
-    try {
-      const r = await fetch('api/users');
-      if (!r.ok) return;
-      const j = await r.json();
-      $('#users-count').textContent = j.users.length;
-      $('#users-list').innerHTML = j.users
-        .map(
-          (u) => `<div class="u-item">
-            <div class="u-main">
-              <b>${esc(u.username)}</b>
-              <span class="muted small">${u.role === 'admin' ? '管理员' : '普通用户'} · ${new Date(u.createdAt).toLocaleDateString('zh-CN')}</span>
-            </div>
-            ${u.role === 'admin' ? '<span class="tag">不可删除</span>' : `<button class="icon-btn" data-del="${esc(u.username)}" aria-label="删除">✕</button>`}
-          </div>`
-        )
-        .join('');
-    } catch (e) {}
-  }
-
-  $('#users-list').addEventListener('click', async (e) => {
-    const btn = e.target.closest('[data-del]');
-    if (!btn) return;
-    const name = btn.dataset.del;
-    if (!confirm(`确定删除用户「${name}」吗？删除后对方将无法登录。`)) return;
-    const r = await postJSON('api/users/delete', { username: name });
-    if (r.ok) {
-      toast('已删除 ' + name);
-      loadUsersList();
-    } else {
-      toast((r.data && r.data.error) || '删除失败');
-    }
-  });
-
-  /* ---------------- 启动 ---------------- */
   async function bootstrap() {
     if (location.protocol === 'file:') {
       const el = $('#boot-fail');
@@ -1464,32 +1265,26 @@
       }
       return;
     }
-    let data = null;
-    let unauthorized = false;
-    try {
-      const r = await fetch('api/me');
-      const ct = (r.headers.get('content-type') || '').toLowerCase();
-      if (ct.indexOf('json') >= 0) {
-        let j = null;
-        try {
-          j = await r.json();
-        } catch (e) {}
-        if (r.ok && j && j.ok) data = j;
-        else if (r.status === 401) unauthorized = true;
-      }
-    } catch (e) {}
 
-    if (data) {
-      enterApp(data.user);
-      return;
+    // 探测有没有后端：有就交给服务端调 AI，没有就直接在浏览器里调
+    try {
+      const r = await fetch('api/ping');
+      const ct = (r.headers.get('content-type') || '').toLowerCase();
+      if (r.ok && ct.indexOf('json') >= 0) {
+        const j = await r.json();
+        STANDALONE = !(j && j.ok);
+      } else {
+        STANDALONE = true;
+      }
+    } catch (e) {
+      STANDALONE = true;
     }
-    if (unauthorized) {
-      showAuth('login');
-      return;
-    }
-    // 没有后端（静态托管，如 GitHub Pages）→ 浏览器直连 AI
-    STANDALONE = true;
-    enterApp({ guest: true });
+
+    migrateGuestData();
+    loadUserData();
+    startApp();
+    window.__APP_READY = true;
+    if ($('#boot-fail')) $('#boot-fail').hidden = true;
   }
 
   window.addEventListener('hashchange', () => {

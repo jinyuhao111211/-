@@ -16,6 +16,8 @@
   const defaultSettings = { model: 'agnes-2.5-flash', subject: '数学', fullScore: 100, extraPrompt: '', apiKey: '', apiBase: '' };
   let currentUser = '';
   let isAdmin = false;
+  /** 纯静态托管（GitHub Pages 等没有后端）时为 true，批改走浏览器直连 AI */
+  let STANDALONE = false;
   const lsKey = (k) => (currentUser ? k + '::' + currentUser : k);
 
   function emptyRoster() {
@@ -379,27 +381,43 @@
     const st = students().find((s) => s.id === item.studentId);
     const cls = activeClass();
     try {
-      const res = await fetch('api/grade', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      let result;
+      if (STANDALONE) {
+        // 静态托管（无后端）：浏览器直连 AI 接口
+        result = await GradeCore.grade({
+          base: localBase(),
+          key: localKey(),
+          model: state.settings.model,
           image: item.dataUrl,
           subject: state.settings.subject,
           fullScore: Number(state.settings.fullScore) || 100,
           extraPrompt: state.settings.extraPrompt,
-          model: state.settings.model,
           studentName: st ? st.name : '',
-          apiKey: localKey(),
-          apiBase: localBase(),
-        }),
-      });
-      if (res.status === 401) {
-        showAuth('login');
-        throw new Error('登录已失效，请重新登录');
+        });
+      } else {
+        const res = await fetch('api/grade', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            image: item.dataUrl,
+            subject: state.settings.subject,
+            fullScore: Number(state.settings.fullScore) || 100,
+            extraPrompt: state.settings.extraPrompt,
+            model: state.settings.model,
+            studentName: st ? st.name : '',
+            apiKey: localKey(),
+            apiBase: localBase(),
+          }),
+        });
+        if (res.status === 401) {
+          showAuth('login');
+          throw new Error('登录已失效，请重新登录');
+        }
+        const j = await res.json();
+        if (!res.ok || !j.ok) throw new Error(j.error || '批改失败');
+        result = j.data;
       }
-      const j = await res.json();
-      if (!res.ok || !j.ok) throw new Error(j.error || '批改失败');
-      item.result = j.data;
+      item.result = result;
       item.status = 'done';
 
       const rec = {
@@ -409,10 +427,10 @@
         studentId: st ? st.id : '',
         studentName: st ? st.name : '未指定',
         studentNo: st ? st.no : '',
-        subject: j.data.subject || state.settings.subject,
-        fullScore: j.data.fullScore || Number(state.settings.fullScore) || 100,
+        subject: result.subject || state.settings.subject,
+        fullScore: result.fullScore || Number(state.settings.fullScore) || 100,
         thumb: item.thumb,
-        result: j.data,
+        result: result,
       };
       state.records.unshift(rec);
       if (state.records.length > 300) state.records.length = 300;
@@ -1100,6 +1118,14 @@
   }
 
   async function checkHealth() {
+    if (STANDALONE) {
+      health.apiBase = GradeCore.DEFAULT_BASE;
+      health.fallbackConfigured = false;
+      health.fallbackSource = 'none';
+      applyKeyUI();
+      $('#set-api').textContent = hasKey() ? '正常（浏览器直连）' : '密钥未配置';
+      return;
+    }
     try {
       const r = await fetch('api/health');
       const j = await r.json();
@@ -1150,13 +1176,27 @@
     btn.classList.add('busy');
     keyMsg('正在校验…');
     try {
-      const r = await fetch('api/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key, apiBase, model }),
-      });
-      const j = await r.json();
-      if (!j.ok) throw new Error(j.error || '校验失败');
+      let j;
+      if (STANDALONE) {
+        // 静态托管：浏览器直接 ping 一次接口验证
+        await GradeCore.callChat({
+          base: apiBase,
+          key,
+          model,
+          messages: [{ role: 'user', content: 'ping' }],
+          maxTokens: 1,
+          timeoutMs: 25000,
+        });
+        j = { ok: true, masked: maskOf(key), apiBase: apiBase || GradeCore.DEFAULT_BASE, model: model || GradeCore.DEFAULT_MODEL };
+      } else {
+        const r = await fetch('api/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key, apiBase, model }),
+        });
+        j = await r.json();
+        if (!j.ok) throw new Error(j.error || '校验失败');
+      }
       state.settings.apiKey = key;
       state.settings.apiBase = apiBase;
       if (model) state.settings.model = model;
@@ -1424,15 +1464,32 @@
       }
       return;
     }
+    let data = null;
+    let unauthorized = false;
     try {
       const r = await fetch('api/me');
-      if (r.ok) {
-        const j = await r.json();
-        enterApp(j.user);
-        return;
+      const ct = (r.headers.get('content-type') || '').toLowerCase();
+      if (ct.indexOf('json') >= 0) {
+        let j = null;
+        try {
+          j = await r.json();
+        } catch (e) {}
+        if (r.ok && j && j.ok) data = j;
+        else if (r.status === 401) unauthorized = true;
       }
     } catch (e) {}
-    showAuth('login');
+
+    if (data) {
+      enterApp(data.user);
+      return;
+    }
+    if (unauthorized) {
+      showAuth('login');
+      return;
+    }
+    // 没有后端（静态托管，如 GitHub Pages）→ 浏览器直连 AI
+    STANDALONE = true;
+    enterApp({ guest: true });
   }
 
   window.addEventListener('hashchange', () => {

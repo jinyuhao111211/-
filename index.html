@@ -9,10 +9,10 @@
 <meta name="apple-mobile-web-app-title" content="作业批改台" />
 <meta name="format-detection" content="telephone=no" />
 <title>作业批改台 · AI 批量批改与学情报告</title>
-<link rel="manifest" href="/manifest.webmanifest" />
-<link rel="apple-touch-icon" href="/icon-180.png" />
-<link rel="icon" href="/icon.svg" type="image/svg+xml" />
-<link rel="stylesheet" href="/styles.css" />
+<link rel="manifest" href="manifest.webmanifest" />
+<link rel="apple-touch-icon" href="icon-180.png" />
+<link rel="icon" href="icon.svg" type="image/svg+xml" />
+<link rel="stylesheet" href="styles.css" />
 </head>
 <body>
 <!-- 登录 / 注册（默认关闭，仅在开启 REQUIRE_LOGIN 时出现） -->
@@ -63,7 +63,7 @@
   </div>
 </div>
 
-<div class="app hidden" id="app">
+<div class="app" id="app">
   <!-- 顶栏 -->
   <header class="appbar">
     <div class="brand">
@@ -512,6 +512,38 @@
 </div>
 
 <div class="toast" id="toast" hidden></div>
-<script src="/app.js"></script>
+<div class="boot-fail" id="boot-fail" hidden
+     style="position:fixed;inset:0;z-index:999;background:#f5f6fa;display:flex;align-items:center;justify-content:center;padding:24px;font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;color:#14161c;">
+  <div style="max-width:420px;background:#fff;border:1px solid #e6e8ef;border-radius:18px;padding:26px 22px;box-shadow:0 12px 40px -18px rgba(16,24,40,.25);line-height:1.7;">
+    <h3 style="margin:0 0 10px;font-size:18px;">页面没能启动</h3>
+    <p style="margin:0 0 12px;font-size:14px;color:#3f4450;">
+      如果你是直接双击 <b>index.html</b> 打开的，浏览器不会运行它——这个网站需要一个本地服务。
+    </p>
+    <p style="margin:0 0 6px;font-size:13px;color:#7b8291;">在该文件夹里执行：</p>
+    <pre style="margin:0 0 12px;background:#f5f6fa;border-radius:10px;padding:10px 12px;font-size:13px;overflow:auto;">node server.js</pre>
+    <p style="margin:0 0 12px;font-size:14px;color:#3f4450;">然后浏览器打开 <b>http://localhost:3000</b></p>
+    <p id="boot-err" style="margin:0;font-size:12px;color:#dc2626;word-break:break-all;"></p>
+  </div>
+</div>
+<script>
+  (function () {
+    window.addEventListener('error', function (e) {
+      window.__BOOT_ERR = (e && e.message) || '';
+    });
+    setTimeout(function () {
+      if (window.__APP_READY) return;
+      var el = document.getElementById('boot-fail');
+      if (!el) return;
+      el.hidden = false;
+      var s = document.getElementById('boot-err');
+      if (s) {
+        var msg = window.__BOOT_ERR;
+        if (!msg) msg = location.protocol === 'file:' ? '当前是 file:// 方式打开，脚本被浏览器拦截' : '页面脚本没有正常执行';
+        s.textContent = '错误信息：' + msg;
+      }
+    }, 2500);
+  })();
+</script>
+<script src="app.js"></script>
 </body>
 </html>

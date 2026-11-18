@@ -379,7 +379,7 @@
     const st = students().find((s) => s.id === item.studentId);
     const cls = activeClass();
     try {
-      const res = await fetch('/api/grade', {
+      const res = await fetch('api/grade', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1101,7 +1101,7 @@
 
   async function checkHealth() {
     try {
-      const r = await fetch('/api/health');
+      const r = await fetch('api/health');
       const j = await r.json();
       Object.assign(health, {
         fallbackConfigured: Boolean(j.ok && j.fallbackConfigured),
@@ -1150,7 +1150,7 @@
     btn.classList.add('busy');
     keyMsg('正在校验…');
     try {
-      const r = await fetch('/api/verify', {
+      const r = await fetch('api/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ key, apiBase, model }),
@@ -1213,6 +1213,8 @@
   }
 
   function showAuth(tab) {
+    window.__APP_READY = true;
+    $('#boot-fail').hidden = true;
     $('#auth-screen').hidden = false;
     $('#app').classList.add('hidden');
     switchAuthTab(tab || 'login');
@@ -1241,6 +1243,8 @@
 
     $('#auth-screen').hidden = true;
     $('#app').classList.remove('hidden');
+    window.__APP_READY = true;
+    if ($('#boot-fail')) $('#boot-fail').hidden = true;
 
     const chip = $('#user-chip');
     chip.hidden = guest;
@@ -1291,7 +1295,7 @@
     btn.disabled = true;
     btn.classList.add('busy');
     try {
-      const r = await postJSON('/api/login', { username, password });
+      const r = await postJSON('api/login', { username, password });
       if (!r.ok) throw new Error((r.data && r.data.error) || '登录失败');
       authMsg('#login-msg', '');
       $('#login-pass').value = '';
@@ -1314,7 +1318,7 @@
     btn.disabled = true;
     btn.classList.add('busy');
     try {
-      const r = await postJSON('/api/register', { username, password });
+      const r = await postJSON('api/register', { username, password });
       if (!r.ok) throw new Error((r.data && r.data.error) || '注册失败');
       authMsg('#reg-msg', '');
       $('#reg-pass').value = '';
@@ -1331,7 +1335,7 @@
   $('#btn-logout').addEventListener('click', async () => {
     if (!confirm('确定退出登录吗？')) return;
     try {
-      await fetch('/api/logout', { method: 'POST' });
+      await fetch('api/logout', { method: 'POST' });
     } catch (e) {}
     currentUser = '';
     isAdmin = false;
@@ -1360,7 +1364,7 @@
       msg.textContent = '新密码至少 6 位';
       return;
     }
-    const r = await postJSON('/api/password', { oldPassword, newPassword });
+    const r = await postJSON('api/password', { oldPassword, newPassword });
     if (r.ok) {
       $('#pwd-old').value = '';
       $('#pwd-new').value = '';
@@ -1377,7 +1381,7 @@
   async function loadUsersList() {
     if (!isAdmin) return;
     try {
-      const r = await fetch('/api/users');
+      const r = await fetch('api/users');
       if (!r.ok) return;
       const j = await r.json();
       $('#users-count').textContent = j.users.length;
@@ -1400,7 +1404,7 @@
     if (!btn) return;
     const name = btn.dataset.del;
     if (!confirm(`确定删除用户「${name}」吗？删除后对方将无法登录。`)) return;
-    const r = await postJSON('/api/users/delete', { username: name });
+    const r = await postJSON('api/users/delete', { username: name });
     if (r.ok) {
       toast('已删除 ' + name);
       loadUsersList();
@@ -1411,8 +1415,17 @@
 
   /* ---------------- 启动 ---------------- */
   async function bootstrap() {
+    if (location.protocol === 'file:') {
+      const el = $('#boot-fail');
+      if (el) {
+        el.hidden = false;
+        const s = $('#boot-err');
+        if (s) s.textContent = '错误信息：当前是 file:// 方式打开，接口无法访问';
+      }
+      return;
+    }
     try {
-      const r = await fetch('/api/me');
+      const r = await fetch('api/me');
       if (r.ok) {
         const j = await r.json();
         enterApp(j.user);
@@ -1427,7 +1440,7 @@
     if (v && !$('#app').classList.contains('hidden')) go(v, true);
   });
   if ('serviceWorker' in navigator && location.protocol === 'https:') {
-    navigator.serviceWorker.register('/sw.js').catch(() => {});
+    navigator.serviceWorker.register('sw.js').catch(() => {});
   }
   bootstrap();
 })();

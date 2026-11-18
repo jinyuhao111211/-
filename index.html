@@ -15,7 +15,55 @@
 <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-<div class="app">
+<!-- 登录 / 注册 -->
+<div class="auth" id="auth-screen">
+  <div class="auth-card">
+    <div class="auth-brand">
+      <span class="logo" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M5 13.5l4.2 4.2L19 7" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </span>
+      <div class="brand-text">
+        <strong>作业批改台</strong>
+        <span>AI 批量批改 · 学情报告</span>
+      </div>
+    </div>
+
+    <div class="auth-tabs">
+      <button type="button" class="auth-tab active" data-auth="login">登录</button>
+      <button type="button" class="auth-tab" data-auth="register">注册</button>
+    </div>
+
+    <form class="auth-form" id="form-login">
+      <label class="field">
+        <span>用户名</span>
+        <input id="login-user" name="username" autocomplete="username" placeholder="请输入用户名" />
+      </label>
+      <label class="field">
+        <span>密码</span>
+        <input id="login-pass" type="password" autocomplete="current-password" placeholder="请输入密码" />
+      </label>
+      <button class="btn primary lg" id="btn-login" type="submit">登录</button>
+      <p class="auth-msg" id="login-msg"></p>
+    </form>
+
+    <form class="auth-form hidden" id="form-register">
+      <label class="field">
+        <span>用户名</span>
+        <input id="reg-user" autocomplete="username" placeholder="2-20 位，中英文、数字、下划线" />
+      </label>
+      <label class="field">
+        <span>密码</span>
+        <input id="reg-pass" type="password" autocomplete="new-password" placeholder="至少 6 位" />
+      </label>
+      <button class="btn primary lg" id="btn-register" type="submit">注册并进入</button>
+      <p class="auth-msg" id="reg-msg"></p>
+    </form>
+
+    <p class="auth-foot">新用户注册后即可使用，数据按账号分开保存在本机浏览器。</p>
+  </div>
+</div>
+
+<div class="app hidden" id="app">
   <!-- 顶栏 -->
   <header class="appbar">
     <div class="brand">
@@ -48,6 +96,7 @@
     </nav>
 
     <div class="topbar-side">
+      <span class="user-chip" id="user-chip" hidden></span>
       <span class="status-pill" id="api-status"><i class="dot"></i><span>检查中…</span></span>
     </div>
   </header>
@@ -296,22 +345,76 @@
       <div class="grid-2">
         <div class="card">
           <div class="card-head">
+            <h2>我的账号</h2>
+            <span class="pill" id="acct-role">—</span>
+          </div>
+          <div class="kv">
+            <div><span>用户名</span><b id="acct-name">—</b></div>
+            <div><span>角色</span><b id="acct-role-text">—</b></div>
+          </div>
+          <div class="form">
+            <label class="field">
+              <span>原密码</span>
+              <input id="pwd-old" type="password" autocomplete="current-password" placeholder="当前密码" />
+            </label>
+            <label class="field">
+              <span>新密码</span>
+              <input id="pwd-new" type="password" autocomplete="new-password" placeholder="至少 6 位" />
+            </label>
+            <div class="row">
+              <button class="btn" id="btn-change-pwd">修改密码</button>
+              <button class="btn ghost danger" id="btn-logout">退出登录</button>
+            </div>
+            <p class="muted small" id="pwd-msg"></p>
+          </div>
+        </div>
+
+        <div class="card" id="admin-card" hidden>
+          <div class="card-head">
+            <h2>用户管理</h2>
+            <span class="pill" id="users-count">0</span>
+          </div>
+          <div class="users-list" id="users-list"></div>
+          <p class="muted small">仅管理员可见。删除用户后对方无法再登录，其本机已保存的数据不受影响。</p>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-head">
             <h2>API 密钥</h2>
             <span class="pill" id="key-state">检查中…</span>
           </div>
           <div class="form">
             <label class="field">
-              <span>Agnes AI 密钥（sk- 开头）</span>
+              <span>API 密钥（sk- 开头）</span>
               <div class="key-row">
                 <input id="in-key" type="password" placeholder="sk-..." autocomplete="off" autocapitalize="off" spellcheck="false" />
                 <button class="btn ghost" id="btn-key-eye" type="button">显示</button>
               </div>
             </label>
+            <label class="field">
+              <span>接口地址（OpenAI 兼容，可换成其他 AI 服务）</span>
+              <div class="key-row">
+                <input id="in-base" list="base-presets" placeholder="https://apihub.agnes-ai.com/v1" autocomplete="off" autocapitalize="off" spellcheck="false" />
+                <button class="btn ghost" id="btn-base-reset" type="button">默认</button>
+              </div>
+            </label>
+            <datalist id="base-presets">
+              <option value="https://apihub.agnes-ai.com/v1">Agnes AI（默认）</option>
+              <option value="https://api.openai.com/v1">OpenAI</option>
+              <option value="https://api.deepseek.com/v1">DeepSeek</option>
+              <option value="https://api.moonshot.cn/v1">月之暗面 Kimi</option>
+              <option value="https://dashscope.aliyuncs.com/compatible-mode/v1">通义千问</option>
+              <option value="https://open.bigmodel.cn/api/paas/v4">智谱 GLM</option>
+              <option value="https://api.siliconflow.cn/v1">硅基流动</option>
+              <option value="http://localhost:11434/v1">本地 Ollama</option>
+            </datalist>
             <div class="row">
               <button class="btn primary" id="btn-key-save">保存并验证</button>
-              <button class="btn ghost danger" id="btn-key-clear">清除</button>
+              <button class="btn ghost danger" id="btn-key-clear">清除密钥</button>
             </div>
-            <p class="muted small" id="key-msg">密钥只保存在服务器端，不会下发到浏览器。可在 platform.agnes-ai.com 创建新密钥。</p>
+            <p class="muted small" id="key-msg">密钥和接口地址都只保存在本机浏览器，不会上传到服务器存储。</p>
           </div>
         </div>
 
@@ -324,7 +427,7 @@
             <div><span>服务商</span><b>Agnes AI（OpenAI 兼容协议）</b></div>
             <div><span>接口地址</span><b id="set-base" class="mono">—</b></div>
           </div>
-          <p class="muted small">密钥保存在服务器端，不会发送到浏览器，也不会出现在前端代码里。</p>
+          <p class="muted small">密钥保存在本机浏览器，随每次批改请求发给服务端转发，服务端不存储。</p>
         </div>
       </div>
 
@@ -333,13 +436,17 @@
         <div class="form">
           <label class="field">
             <span>模型</span>
-            <select id="set-model">
-              <option value="agnes-2.5-flash">agnes-2.5-flash（快，推荐）</option>
-              <option value="agnes-2.5-pro">agnes-2.5-pro（更准，稍慢）</option>
-              <option value="agnes-3.0-flash">agnes-3.0-flash</option>
-              <option value="agnes-2.5-pro-alpha">agnes-2.5-pro-alpha</option>
-            </select>
+            <input id="set-model" list="model-presets" placeholder="agnes-2.5-flash" autocomplete="off" spellcheck="false" />
           </label>
+          <datalist id="model-presets">
+            <option value="agnes-2.5-flash">Agnes 快（推荐）</option>
+            <option value="agnes-2.5-pro">Agnes Pro（更准）</option>
+            <option value="agnes-3.0-flash"></option>
+            <option value="gpt-4o-mini"></option>
+            <option value="gpt-4o"></option>
+            <option value="deepseek-chat"></option>
+            <option value="qwen-vl-max"></option>
+          </datalist>
           <label class="field">
             <span>补充要求（会附加到每次批改提示里）</span>
             <textarea id="set-extra" rows="4" placeholder="例如：只判对错，不看解题步骤；作文类按内容、结构、语言三项打分"></textarea>

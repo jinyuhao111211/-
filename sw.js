@@ -1,5 +1,5 @@
 /* 轻量离线缓存：静态资源优先走缓存，接口请求始终走网络 */
-const CACHE = 'hw-grader-v1';
+const CACHE = 'hw-grader-v2';
 const ASSETS = ['/', '/index.html', '/styles.css', '/app.js', '/manifest.webmanifest', '/icon-192.png', '/icon-512.png'];
 
 self.addEventListener('install', (e) => {

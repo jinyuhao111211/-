@@ -13,24 +13,26 @@
   const LS = { roster: 'hw.roster.v2', records: 'hw.records.v2', settings: 'hw.settings.v2' };
 
   /* ---------------------- 状态 ---------------------- */
-  const defaultSettings = { model: 'agnes-2.5-flash', subject: '数学', fullScore: 100, extraPrompt: '' };
+  const defaultSettings = { model: 'agnes-2.5-flash', subject: '数学', fullScore: 100, extraPrompt: '', apiKey: '', apiBase: '' };
+  let currentUser = '';
+  let isAdmin = false;
+  const lsKey = (k) => (currentUser ? k + '::' + currentUser : k);
+
+  function emptyRoster() {
+    return { classes: [{ id: uid(), name: '我的班级', students: [] }], activeId: null };
+  }
+
   const state = {
-    roster: load(LS.roster, null) || { classes: [{ id: uid(), name: '我的班级', students: [] }], activeId: null },
-    records: load(LS.records, []) || [],
-    settings: Object.assign({}, defaultSettings, load(LS.settings, {}) || {}),
+    roster: emptyRoster(),
+    records: [],
+    settings: Object.assign({}, defaultSettings),
     queue: [],
     busy: false,
   };
-  if (!state.roster.classes || !state.roster.classes.length) {
-    state.roster = { classes: [{ id: uid(), name: '我的班级', students: [] }], activeId: null };
-  }
-  if (!state.roster.activeId || !state.roster.classes.some((c) => c.id === state.roster.activeId)) {
-    state.roster.activeId = state.roster.classes[0].id;
-  }
 
   function load(k, d) {
     try {
-      const v = localStorage.getItem(k);
+      const v = localStorage.getItem(lsKey(k));
       return v ? JSON.parse(v) : d;
     } catch (e) {
       return d;
@@ -38,15 +40,29 @@
   }
   function save(k, v) {
     try {
-      localStorage.setItem(k, JSON.stringify(v));
+      localStorage.setItem(lsKey(k), JSON.stringify(v));
     } catch (e) {
       if (k === LS.records) {
         state.records = state.records.slice(0, 60);
-        try { localStorage.setItem(k, JSON.stringify(state.records)); } catch (e2) {}
+        try { localStorage.setItem(lsKey(k), JSON.stringify(state.records)); } catch (e2) {}
         toast('本地存储空间不足，已自动清理较早的记录');
       }
     }
   }
+
+  /** 登录后加载该账号的数据 */
+  function loadUserData() {
+    const r = load(LS.roster, null);
+    state.roster = r && Array.isArray(r.classes) && r.classes.length ? r : emptyRoster();
+    if (!state.roster.activeId || !state.roster.classes.some((c) => c.id === state.roster.activeId)) {
+      state.roster.activeId = state.roster.classes[0].id;
+    }
+    state.records = load(LS.records, []) || [];
+    state.settings = Object.assign({}, defaultSettings, load(LS.settings, {}) || {});
+    state.queue = [];
+    state.busy = false;
+  }
+
   const saveRoster = () => save(LS.roster, state.roster);
   const saveRecords = () => save(LS.records, state.records);
   const saveSettings = () => save(LS.settings, state.settings);
@@ -206,9 +222,9 @@
       ? `${done} 份已完成`
       : '已就绪';
     const btn = $('#btn-grade');
-    btn.disabled = state.busy || pending === 0 || !health.keyConfigured;
+    btn.disabled = state.busy || pending === 0 || !hasKey();
     btn.classList.toggle('busy', state.busy);
-    btn.textContent = state.busy ? '批改中' : !health.keyConfigured ? '请先配置密钥' : pending > 1 ? `开始批改（${pending} 份）` : '开始批改';
+    btn.textContent = state.busy ? '批改中' : !hasKey() ? '请先配置密钥' : pending > 1 ? `开始批改（${pending} 份）` : '开始批改';
   }
 
   function statusText(it) {
@@ -373,8 +389,14 @@
           extraPrompt: state.settings.extraPrompt,
           model: state.settings.model,
           studentName: st ? st.name : '',
+          apiKey: localKey(),
+          apiBase: localBase(),
         }),
       });
+      if (res.status === 401) {
+        showAuth('login');
+        throw new Error('登录已失效，请重新登录');
+      }
       const j = await res.json();
       if (!res.ok || !j.ok) throw new Error(j.error || '批改失败');
       item.result = j.data;
@@ -406,7 +428,7 @@
 
   async function runGrading() {
     if (state.busy) return;
-    if (!health.keyConfigured) {
+    if (!hasKey()) {
       toast('请先在「设置」里填写 API 密钥');
       go('settings');
       return;
@@ -980,6 +1002,7 @@
     $('#set-extra').value = state.settings.extraPrompt || '';
     $('#in-subject').value = state.settings.subject;
     $('#in-full').value = state.settings.fullScore;
+    $('#in-base').value = localBase();
   }
 
   $('#btn-save-settings').addEventListener('click', () => {
@@ -1004,7 +1027,9 @@
   });
 
   $('#btn-export-json').addEventListener('click', () => {
-    download('作业批改数据_' + new Date().toISOString().slice(0, 10) + '.json', JSON.stringify({ roster: state.roster, records: state.records, settings: state.settings }, null, 2), 'application/json');
+    const safeSettings = Object.assign({}, state.settings);
+    delete safeSettings.apiKey; // 导出的数据里不包含密钥
+    download('作业批改数据_' + new Date().toISOString().slice(0, 10) + '.json', JSON.stringify({ roster: state.roster, records: state.records, settings: safeSettings }, null, 2), 'application/json');
   });
   $('#btn-clear-records').addEventListener('click', () => {
     if (!confirm('确定清空全部批改记录吗？此操作不可撤销。')) return;
@@ -1017,36 +1042,60 @@
   });
 
   /* ===================================================================
-   * 健康检查 + 密钥管理
+   * 密钥（存在本机浏览器，随每次批改请求发给服务端）
    * =================================================================== */
-  const health = { keyConfigured: true, keyMasked: '', keySource: 'builtin', keyLocked: false, apiBase: '' };
-  const SRC_TEXT = { env: '服务器环境变量', file: '网页里填写', builtin: '内置默认' };
+  const health = { fallbackConfigured: false, fallbackMasked: '', fallbackSource: 'none', apiBase: '' };
+  const SRC_TEXT = { env: '服务器环境变量', builtin: '服务器内置', none: '无' };
+  const KEY_RE = /^sk-[A-Za-z0-9_-]{8,}$/;
+
+  const localKey = () => String(state.settings.apiKey || '').trim();
+  const localBase = () => String(state.settings.apiBase || '').trim();
+  const effectiveBase = () => localBase() || health.apiBase || '';
+  const hasKey = () => KEY_RE.test(localKey()) || health.fallbackConfigured;
+  function maskOf(k) {
+    const s = String(k || '');
+    if (!s) return '';
+    if (s.length <= 8) return '****';
+    return s.slice(0, 3) + '****' + s.slice(-4);
+  }
 
   function applyKeyUI() {
-    const ok = health.keyConfigured;
-    const pill = $('#api-status');
-    pill.classList.toggle('off', !ok);
-    pill.querySelector('span').textContent = ok ? 'AI 已连接' : '未配置密钥';
+    const has = hasKey();
+    const lk = localKey();
 
-    $('#set-api').textContent = ok ? '正常' : '密钥未配置';
-    $('#set-base').textContent = health.apiBase || '—';
-    $('#set-key').textContent = ok ? health.keyMasked : '未配置';
-    $('#set-key-src').textContent = ok ? SRC_TEXT[health.keySource] || health.keySource : '—';
+    const pill = $('#api-status');
+    pill.classList.toggle('off', !has);
+    pill.querySelector('span').textContent = has ? 'AI 已连接' : '未配置密钥';
+
+    $('#set-api').textContent = has ? '正常' : '密钥未配置';
+    $('#set-base').textContent = effectiveBase() || '—';
+    const baseInput = $('#in-base');
+    if (baseInput && document.activeElement !== baseInput) baseInput.value = localBase();
+    if (baseInput) baseInput.placeholder = health.apiBase || 'https://apihub.agnes-ai.com/v1';
+    if (lk) {
+      $('#set-key').textContent = maskOf(lk);
+      $('#set-key-src').textContent = '本机浏览器';
+    } else if (health.fallbackConfigured) {
+      $('#set-key').textContent = health.fallbackMasked;
+      $('#set-key-src').textContent = SRC_TEXT[health.fallbackSource] || health.fallbackSource;
+    } else {
+      $('#set-key').textContent = '未配置';
+      $('#set-key-src').textContent = '—';
+    }
 
     const statePill = $('#key-state');
-    statePill.textContent = ok ? '已配置' : '未配置';
-    statePill.className = 'pill' + (ok ? '' : ' bad');
+    statePill.textContent = has ? '已配置' : '未配置';
+    statePill.className = 'pill' + (has ? '' : ' bad');
 
-    $('#in-key').placeholder = ok ? '已配置，输入新密钥可替换' : 'sk-...';
-    $('#btn-key-clear').disabled = health.keySource !== 'file';
-    $('#key-banner').hidden = ok;
-    if (health.keyLocked) {
-      $('#key-msg').textContent = '当前密钥来自服务器环境变量 AGNES_API_KEY，网页里无法修改或清除。';
-    } else if (health.keySource === 'builtin') {
-      $('#key-msg').textContent = '当前用的是内置密钥，建议填入你自己的密钥；密钥只保存在服务器端，不会下发到浏览器。';
-    } else {
-      $('#key-msg').textContent = '密钥只保存在服务器端，不会下发到浏览器。可在 platform.agnes-ai.com 创建新密钥。';
-    }
+    $('#in-key').placeholder = lk ? '已配置，输入新密钥可替换' : 'sk-...';
+    $('#btn-key-clear').disabled = !lk;
+    $('#key-banner').hidden = has;
+    $('#key-msg').className = 'muted small';
+    $('#key-msg').textContent = lk
+      ? '密钥保存在这台设备的浏览器里（localStorage），只对本设备生效；不会上传到服务器存储。'
+      : health.fallbackConfigured
+      ? '当前用服务器上的默认密钥。填写自己的密钥可避免消耗他人额度。'
+      : '还没有密钥。可在 platform.agnes-ai.com 创建一个，粘贴到这里保存。';
     renderQueue();
   }
 
@@ -1055,15 +1104,14 @@
       const r = await fetch('/api/health');
       const j = await r.json();
       Object.assign(health, {
-        keyConfigured: Boolean(j.ok && j.keyConfigured),
-        keyMasked: j.keyMasked || '',
-        keySource: j.keySource || 'builtin',
-        keyLocked: Boolean(j.keyLocked),
+        fallbackConfigured: Boolean(j.ok && j.fallbackConfigured),
+        fallbackMasked: j.fallbackMasked || '',
+        fallbackSource: j.fallbackSource || 'none',
         apiBase: j.apiBase || '',
       });
       applyKeyUI();
     } catch (e) {
-      health.keyConfigured = false;
+      health.fallbackConfigured = false;
       applyKeyUI();
       $('#set-api').textContent = '无法连接服务器';
     }
@@ -1083,24 +1131,40 @@
   });
 
   $('#btn-key-save').addEventListener('click', async () => {
-    const key = $('#in-key').value.trim();
+    const typed = $('#in-key').value.trim();
+    const key = typed || localKey();
+    const apiBase = $('#in-base').value.trim();
+    const model = ($('#set-model').value || '').trim();
     if (!key) return keyMsg('请先粘贴密钥', 'err');
+    if (!KEY_RE.test(key)) return keyMsg('密钥格式不对，应以 sk- 开头', 'err');
+    if (apiBase) {
+      try {
+        const u = new URL(apiBase);
+        if (!/^https?:$/.test(u.protocol)) throw new Error('bad');
+      } catch (e) {
+        return keyMsg('接口地址格式不对，应形如 https://api.xxx.com/v1', 'err');
+      }
+    }
     const btn = $('#btn-key-save');
     btn.disabled = true;
     btn.classList.add('busy');
-    keyMsg('正在校验密钥…');
+    keyMsg('正在校验…');
     try {
-      const r = await fetch('/api/key', {
+      const r = await fetch('/api/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key }),
+        body: JSON.stringify({ key, apiBase, model }),
       });
       const j = await r.json();
-      if (!j.ok) throw new Error(j.error || '保存失败');
+      if (!j.ok) throw new Error(j.error || '校验失败');
+      state.settings.apiKey = key;
+      state.settings.apiBase = apiBase;
+      if (model) state.settings.model = model;
+      saveSettings();
       $('#in-key').value = '';
-      await checkHealth();
-      keyMsg('已保存并通过校验：' + j.masked, 'ok');
-      toast('密钥已保存');
+      applyKeyUI();
+      keyMsg(`已保存到本机浏览器，校验通过：${j.masked} · ${j.apiBase}${j.model ? ' · ' + j.model : ''}`, 'ok');
+      toast('已保存并验证通过');
     } catch (e) {
       keyMsg(e.message || '保存失败', 'err');
     } finally {
@@ -1109,18 +1173,22 @@
     }
   });
 
-  $('#btn-key-clear').addEventListener('click', async () => {
-    if (!confirm('确定清除网页里保存的密钥吗？清除后将回退到内置密钥。')) return;
-    try {
-      const r = await fetch('/api/key', { method: 'DELETE' });
-      const j = await r.json();
-      if (!j.ok) throw new Error(j.error || '清除失败');
-      await checkHealth();
-      keyMsg('已清除网页里保存的密钥', 'ok');
-      toast('已清除');
-    } catch (e) {
-      keyMsg(e.message || '清除失败', 'err');
-    }
+  $('#btn-base-reset').addEventListener('click', () => {
+    state.settings.apiBase = '';
+    saveSettings();
+    $('#in-base').value = '';
+    applyKeyUI();
+    keyMsg('接口地址已恢复默认：' + (health.apiBase || 'Agnes AI'), 'ok');
+  });
+
+  $('#btn-key-clear').addEventListener('click', () => {
+    if (!localKey()) return;
+    if (!confirm('确定清除本机保存的密钥吗？清除后将改用服务器上的默认密钥（如果有）。')) return;
+    state.settings.apiKey = '';
+    saveSettings();
+    applyKeyUI();
+    keyMsg('已清除本机密钥', 'ok');
+    toast('已清除');
   });
 
   $('#banner-go').addEventListener('click', () => go('settings'));
@@ -1128,7 +1196,64 @@
   /* ===================================================================
    * 初始化
    * =================================================================== */
-  function init() {
+  /* ===================================================================
+   * 登录 / 注册 / 账号
+   * =================================================================== */
+  async function postJSON(url, body) {
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body || {}),
+    });
+    let j = null;
+    try {
+      j = await r.json();
+    } catch (e) {}
+    return { ok: r.ok, status: r.status, data: j };
+  }
+
+  function showAuth(tab) {
+    $('#auth-screen').hidden = false;
+    $('#app').classList.add('hidden');
+    switchAuthTab(tab || 'login');
+  }
+
+  function switchAuthTab(which) {
+    $$('.auth-tab').forEach((b) => b.classList.toggle('active', b.dataset.auth === which));
+    $('#form-login').classList.toggle('hidden', which !== 'login');
+    $('#form-register').classList.toggle('hidden', which !== 'register');
+    $('#login-msg').textContent = '';
+    $('#reg-msg').textContent = '';
+  }
+
+  function authMsg(el, text, kind) {
+    const node = $(el);
+    node.textContent = text || '';
+    node.className = 'auth-msg' + (kind === 'err' ? ' err' : kind === 'ok' ? ' ok' : '');
+  }
+
+  function enterApp(user) {
+    currentUser = user.username;
+    isAdmin = user.role === 'admin';
+    loadUserData();
+
+    $('#auth-screen').hidden = true;
+    $('#app').classList.remove('hidden');
+
+    const chip = $('#user-chip');
+    chip.hidden = false;
+    chip.textContent = currentUser;
+    chip.classList.toggle('admin', isAdmin);
+    $('#acct-name').textContent = currentUser;
+    $('#acct-role-text').textContent = isAdmin ? '管理员' : '普通用户';
+    $('#acct-role').textContent = isAdmin ? 'admin' : 'user';
+    $('#admin-card').hidden = !isAdmin;
+
+    startApp();
+    if (isAdmin) loadUsersList();
+  }
+
+  function startApp() {
     renderClassSelects();
     renderSettings();
     renderRoster();
@@ -1138,13 +1263,156 @@
     checkHealth();
     const h = (location.hash || '').replace('#', '');
     if (h && document.getElementById('view-' + h)) go(h, true);
-    window.addEventListener('hashchange', () => {
-      const v = (location.hash || '').replace('#', '');
-      if (v) go(v, true);
-    });
-    if ('serviceWorker' in navigator && location.protocol === 'https:') {
-      navigator.serviceWorker.register('/sw.js').catch(() => {});
-    }
   }
-  init();
+
+  $$('.auth-tab').forEach((b) => b.addEventListener('click', () => switchAuthTab(b.dataset.auth)));
+
+  $('#form-login').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const username = $('#login-user').value.trim();
+    const password = $('#login-pass').value;
+    if (!username || !password) return authMsg('#login-msg', '请填写用户名和密码', 'err');
+    const btn = $('#btn-login');
+    btn.disabled = true;
+    btn.classList.add('busy');
+    try {
+      const r = await postJSON('/api/login', { username, password });
+      if (!r.ok) throw new Error((r.data && r.data.error) || '登录失败');
+      authMsg('#login-msg', '');
+      $('#login-pass').value = '';
+      enterApp(r.data.user);
+      toast('欢迎回来，' + r.data.user.username);
+    } catch (err) {
+      authMsg('#login-msg', err.message, 'err');
+    } finally {
+      btn.disabled = false;
+      btn.classList.remove('busy');
+    }
+  });
+
+  $('#form-register').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const username = $('#reg-user').value.trim();
+    const password = $('#reg-pass').value;
+    if (!username || !password) return authMsg('#reg-msg', '请填写用户名和密码', 'err');
+    const btn = $('#btn-register');
+    btn.disabled = true;
+    btn.classList.add('busy');
+    try {
+      const r = await postJSON('/api/register', { username, password });
+      if (!r.ok) throw new Error((r.data && r.data.error) || '注册失败');
+      authMsg('#reg-msg', '');
+      $('#reg-pass').value = '';
+      enterApp(r.data.user);
+      toast('注册成功，已登录');
+    } catch (err) {
+      authMsg('#reg-msg', err.message, 'err');
+    } finally {
+      btn.disabled = false;
+      btn.classList.remove('busy');
+    }
+  });
+
+  $('#btn-logout').addEventListener('click', async () => {
+    if (!confirm('确定退出登录吗？')) return;
+    try {
+      await fetch('/api/logout', { method: 'POST' });
+    } catch (e) {}
+    currentUser = '';
+    isAdmin = false;
+    state.roster = emptyRoster();
+    state.records = [];
+    state.settings = Object.assign({}, defaultSettings);
+    state.queue = [];
+    $('#user-chip').hidden = true;
+    $('#login-user').value = currentUser;
+    $('#login-pass').value = '';
+    showAuth('login');
+    toast('已退出登录');
+  });
+
+  $('#btn-change-pwd').addEventListener('click', async () => {
+    const oldPassword = $('#pwd-old').value;
+    const newPassword = $('#pwd-new').value;
+    const msg = $('#pwd-msg');
+    if (!oldPassword || !newPassword) {
+      msg.className = 'muted small msg-err';
+      msg.textContent = '请填写原密码和新密码';
+      return;
+    }
+    if (newPassword.length < 6) {
+      msg.className = 'muted small msg-err';
+      msg.textContent = '新密码至少 6 位';
+      return;
+    }
+    const r = await postJSON('/api/password', { oldPassword, newPassword });
+    if (r.ok) {
+      $('#pwd-old').value = '';
+      $('#pwd-new').value = '';
+      msg.className = 'muted small msg-ok';
+      msg.textContent = '密码已修改';
+      toast('密码已修改');
+    } else {
+      msg.className = 'muted small msg-err';
+      msg.textContent = (r.data && r.data.error) || '修改失败';
+    }
+  });
+
+  /* ---------------- 管理员：用户列表 ---------------- */
+  async function loadUsersList() {
+    if (!isAdmin) return;
+    try {
+      const r = await fetch('/api/users');
+      if (!r.ok) return;
+      const j = await r.json();
+      $('#users-count').textContent = j.users.length;
+      $('#users-list').innerHTML = j.users
+        .map(
+          (u) => `<div class="u-item">
+            <div class="u-main">
+              <b>${esc(u.username)}</b>
+              <span class="muted small">${u.role === 'admin' ? '管理员' : '普通用户'} · ${new Date(u.createdAt).toLocaleDateString('zh-CN')}</span>
+            </div>
+            ${u.role === 'admin' ? '<span class="tag">不可删除</span>' : `<button class="icon-btn" data-del="${esc(u.username)}" aria-label="删除">✕</button>`}
+          </div>`
+        )
+        .join('');
+    } catch (e) {}
+  }
+
+  $('#users-list').addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-del]');
+    if (!btn) return;
+    const name = btn.dataset.del;
+    if (!confirm(`确定删除用户「${name}」吗？删除后对方将无法登录。`)) return;
+    const r = await postJSON('/api/users/delete', { username: name });
+    if (r.ok) {
+      toast('已删除 ' + name);
+      loadUsersList();
+    } else {
+      toast((r.data && r.data.error) || '删除失败');
+    }
+  });
+
+  /* ---------------- 启动 ---------------- */
+  async function bootstrap() {
+    try {
+      const r = await fetch('/api/me');
+      if (r.ok) {
+        const j = await r.json();
+        enterApp(j.user);
+        return;
+      }
+    } catch (e) {}
+    showAuth('login');
+  }
+
+  window.addEventListener('hashchange', () => {
+    const v = (location.hash || '').replace('#', '');
+    if (v && !$('#app').classList.contains('hidden')) go(v, true);
+  });
+  if ('serviceWorker' in navigator && location.protocol === 'https:') {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  }
+  bootstrap();
 })();

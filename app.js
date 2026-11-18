@@ -206,9 +206,9 @@
       ? `${done} 份已完成`
       : '已就绪';
     const btn = $('#btn-grade');
-    btn.disabled = state.busy || pending === 0;
+    btn.disabled = state.busy || pending === 0 || !health.keyConfigured;
     btn.classList.toggle('busy', state.busy);
-    btn.textContent = state.busy ? '批改中' : pending > 1 ? `开始批改（${pending} 份）` : '开始批改';
+    btn.textContent = state.busy ? '批改中' : !health.keyConfigured ? '请先配置密钥' : pending > 1 ? `开始批改（${pending} 份）` : '开始批改';
   }
 
   function statusText(it) {
@@ -406,6 +406,11 @@
 
   async function runGrading() {
     if (state.busy) return;
+    if (!health.keyConfigured) {
+      toast('请先在「设置」里填写 API 密钥');
+      go('settings');
+      return;
+    }
     const pending = state.queue.filter((i) => i.status === 'idle' || i.status === 'error');
     if (!pending.length) return toast('没有待批改的作业');
     state.busy = true;
@@ -1012,26 +1017,113 @@
   });
 
   /* ===================================================================
-   * 健康检查
+   * 健康检查 + 密钥管理
    * =================================================================== */
+  const health = { keyConfigured: true, keyMasked: '', keySource: 'builtin', keyLocked: false, apiBase: '' };
+  const SRC_TEXT = { env: '服务器环境变量', file: '网页里填写', builtin: '内置默认' };
+
+  function applyKeyUI() {
+    const ok = health.keyConfigured;
+    const pill = $('#api-status');
+    pill.classList.toggle('off', !ok);
+    pill.querySelector('span').textContent = ok ? 'AI 已连接' : '未配置密钥';
+
+    $('#set-api').textContent = ok ? '正常' : '密钥未配置';
+    $('#set-base').textContent = health.apiBase || '—';
+    $('#set-key').textContent = ok ? health.keyMasked : '未配置';
+    $('#set-key-src').textContent = ok ? SRC_TEXT[health.keySource] || health.keySource : '—';
+
+    const statePill = $('#key-state');
+    statePill.textContent = ok ? '已配置' : '未配置';
+    statePill.className = 'pill' + (ok ? '' : ' bad');
+
+    $('#in-key').placeholder = ok ? '已配置，输入新密钥可替换' : 'sk-...';
+    $('#btn-key-clear').disabled = health.keySource !== 'file';
+    $('#key-banner').hidden = ok;
+    if (health.keyLocked) {
+      $('#key-msg').textContent = '当前密钥来自服务器环境变量 AGNES_API_KEY，网页里无法修改或清除。';
+    } else if (health.keySource === 'builtin') {
+      $('#key-msg').textContent = '当前用的是内置密钥，建议填入你自己的密钥；密钥只保存在服务器端，不会下发到浏览器。';
+    } else {
+      $('#key-msg').textContent = '密钥只保存在服务器端，不会下发到浏览器。可在 platform.agnes-ai.com 创建新密钥。';
+    }
+    renderQueue();
+  }
+
   async function checkHealth() {
     try {
       const r = await fetch('/api/health');
       const j = await r.json();
-      const ok = j.ok && j.keyConfigured;
-      const pill = $('#api-status');
-      pill.classList.toggle('off', !ok);
-      pill.querySelector('span').textContent = ok ? 'AI 已连接' : 'AI 未配置';
-      $('#set-api').textContent = ok ? '正常' : '密钥未配置';
-      $('#set-base').textContent = j.apiBase || '—';
-      $('#set-key').textContent = ok ? '已配置（服务端保存）' : '未配置';
+      Object.assign(health, {
+        keyConfigured: Boolean(j.ok && j.keyConfigured),
+        keyMasked: j.keyMasked || '',
+        keySource: j.keySource || 'builtin',
+        keyLocked: Boolean(j.keyLocked),
+        apiBase: j.apiBase || '',
+      });
+      applyKeyUI();
     } catch (e) {
-      const pill = $('#api-status');
-      pill.classList.add('off');
-      pill.querySelector('span').textContent = '服务异常';
+      health.keyConfigured = false;
+      applyKeyUI();
       $('#set-api').textContent = '无法连接服务器';
     }
   }
+
+  function keyMsg(text, kind) {
+    const el = $('#key-msg');
+    el.textContent = text;
+    el.className = 'small ' + (kind === 'err' ? 'msg-err' : kind === 'ok' ? 'msg-ok' : 'muted');
+  }
+
+  $('#btn-key-eye').addEventListener('click', () => {
+    const inp = $('#in-key');
+    const show = inp.type === 'password';
+    inp.type = show ? 'text' : 'password';
+    $('#btn-key-eye').textContent = show ? '隐藏' : '显示';
+  });
+
+  $('#btn-key-save').addEventListener('click', async () => {
+    const key = $('#in-key').value.trim();
+    if (!key) return keyMsg('请先粘贴密钥', 'err');
+    const btn = $('#btn-key-save');
+    btn.disabled = true;
+    btn.classList.add('busy');
+    keyMsg('正在校验密钥…');
+    try {
+      const r = await fetch('/api/key', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key }),
+      });
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.error || '保存失败');
+      $('#in-key').value = '';
+      await checkHealth();
+      keyMsg('已保存并通过校验：' + j.masked, 'ok');
+      toast('密钥已保存');
+    } catch (e) {
+      keyMsg(e.message || '保存失败', 'err');
+    } finally {
+      btn.disabled = false;
+      btn.classList.remove('busy');
+    }
+  });
+
+  $('#btn-key-clear').addEventListener('click', async () => {
+    if (!confirm('确定清除网页里保存的密钥吗？清除后将回退到内置密钥。')) return;
+    try {
+      const r = await fetch('/api/key', { method: 'DELETE' });
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.error || '清除失败');
+      await checkHealth();
+      keyMsg('已清除网页里保存的密钥', 'ok');
+      toast('已清除');
+    } catch (e) {
+      keyMsg(e.message || '清除失败', 'err');
+    }
+  });
+
+  $('#banner-go').addEventListener('click', () => go('settings'));
 
   /* ===================================================================
    * 初始化

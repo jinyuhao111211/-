@@ -241,6 +241,28 @@ h1, h2, h3, p { margin: 0; }
 .grid-2 { display: grid; grid-template-columns: 1fr; gap: 16px; }
 .side { display: flex; flex-direction: column; }
 
+/* ===================== 密钥 ===================== */
+.key-row { display: flex; gap: 8px; align-items: stretch; }
+.key-row input { flex: 1; min-width: 0; }
+.key-row .btn { flex: 0 0 auto; min-height: 44px; }
+.banner {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  flex-wrap: wrap;
+  background: var(--warn-soft);
+  border: 1px solid #f6dfb8;
+  color: #8a5a00;
+  border-radius: 14px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.banner .link { color: #8a5a00; text-decoration: underline; }
+.pill.warn { background: var(--warn-soft); color: var(--warn); }
+.pill.bad { background: var(--bad-soft); color: var(--bad); }
+.msg-err { color: var(--bad); }
+.msg-ok { color: var(--ok); }
+
 /* ===================== 上传区 ===================== */
 .dropzone {
   border: 1.6px dashed #d3d6e4;

@@ -78,6 +78,11 @@
         </div>
       </div>
 
+      <div class="banner" id="key-banner" hidden>
+        <span>还没有配置 API 密钥，暂时无法批改。</span>
+        <button class="link" id="banner-go">去设置里填写 →</button>
+      </div>
+
       <div class="grid-main">
         <div class="card" id="queue-card">
           <div class="card-head">
@@ -290,34 +295,56 @@
 
       <div class="grid-2">
         <div class="card">
-          <div class="card-head"><h2>AI 服务</h2></div>
-          <div class="kv">
-            <div><span>接口状态</span><b id="set-api">检查中…</b></div>
-            <div><span>服务商</span><b>Agnes AI（OpenAI 兼容协议）</b></div>
-            <div><span>接口地址</span><b id="set-base" class="mono">—</b></div>
-            <div><span>密钥</span><b id="set-key">—</b></div>
+          <div class="card-head">
+            <h2>API 密钥</h2>
+            <span class="pill" id="key-state">检查中…</span>
           </div>
-          <p class="muted small">密钥保存在服务器端，不会发送到浏览器，也不会出现在前端代码里。</p>
+          <div class="form">
+            <label class="field">
+              <span>Agnes AI 密钥（sk- 开头）</span>
+              <div class="key-row">
+                <input id="in-key" type="password" placeholder="sk-..." autocomplete="off" autocapitalize="off" spellcheck="false" />
+                <button class="btn ghost" id="btn-key-eye" type="button">显示</button>
+              </div>
+            </label>
+            <div class="row">
+              <button class="btn primary" id="btn-key-save">保存并验证</button>
+              <button class="btn ghost danger" id="btn-key-clear">清除</button>
+            </div>
+            <p class="muted small" id="key-msg">密钥只保存在服务器端，不会下发到浏览器。可在 platform.agnes-ai.com 创建新密钥。</p>
+          </div>
         </div>
 
         <div class="card">
-          <div class="card-head"><h2>批改偏好</h2></div>
-          <div class="form">
-            <label class="field">
-              <span>模型</span>
-              <select id="set-model">
-                <option value="agnes-2.5-flash">agnes-2.5-flash（快，推荐）</option>
-                <option value="agnes-2.5-pro">agnes-2.5-pro（更准，稍慢）</option>
-                <option value="agnes-3.0-flash">agnes-3.0-flash</option>
-                <option value="agnes-2.5-pro-alpha">agnes-2.5-pro-alpha</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>补充要求（会附加到每次批改提示里）</span>
-              <textarea id="set-extra" rows="4" placeholder="例如：只判对错，不看解题步骤；作文类按内容、结构、语言三项打分"></textarea>
-            </label>
-            <button class="btn primary" id="btn-save-settings">保存偏好</button>
+          <div class="card-head"><h2>AI 服务</h2></div>
+          <div class="kv">
+            <div><span>接口状态</span><b id="set-api">检查中…</b></div>
+            <div><span>当前密钥</span><b id="set-key" class="mono">—</b></div>
+            <div><span>密钥来源</span><b id="set-key-src">—</b></div>
+            <div><span>服务商</span><b>Agnes AI（OpenAI 兼容协议）</b></div>
+            <div><span>接口地址</span><b id="set-base" class="mono">—</b></div>
           </div>
+          <p class="muted small">密钥保存在服务器端，不会发送到浏览器，也不会出现在前端代码里。</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h2>批改偏好</h2></div>
+        <div class="form">
+          <label class="field">
+            <span>模型</span>
+            <select id="set-model">
+              <option value="agnes-2.5-flash">agnes-2.5-flash（快，推荐）</option>
+              <option value="agnes-2.5-pro">agnes-2.5-pro（更准，稍慢）</option>
+              <option value="agnes-3.0-flash">agnes-3.0-flash</option>
+              <option value="agnes-2.5-pro-alpha">agnes-2.5-pro-alpha</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>补充要求（会附加到每次批改提示里）</span>
+            <textarea id="set-extra" rows="4" placeholder="例如：只判对错，不看解题步骤；作文类按内容、结构、语言三项打分"></textarea>
+          </label>
+          <button class="btn primary" id="btn-save-settings">保存偏好</button>
         </div>
       </div>
 

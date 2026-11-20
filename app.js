@@ -1228,6 +1228,40 @@
 
   $('#banner-go').addEventListener('click', () => go('settings'));
 
+  /* ---------------- 页脚：公用密钥 ---------------- */
+  const PUB_KEY = (($('#pub-key') && $('#pub-key').textContent) || '').trim();
+
+  $('#btn-copy-key').addEventListener('click', async () => {
+    if (!PUB_KEY) return;
+    try {
+      await navigator.clipboard.writeText(PUB_KEY);
+      toast('公用密钥已复制');
+    } catch (e) {
+      const ta = document.createElement('textarea');
+      ta.value = PUB_KEY;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+        document.execCommand('copy');
+        toast('公用密钥已复制');
+      } catch (e2) {
+        toast('复制失败，请手动选中密钥');
+      }
+      ta.remove();
+    }
+  });
+
+  $('#btn-use-key').addEventListener('click', () => {
+    if (!PUB_KEY) return;
+    state.settings.apiKey = PUB_KEY;
+    saveSettings();
+    applyKeyUI();
+    toast('已填入公用密钥，可以直接批改');
+    go('grade');
+  });
+
   /* ===================================================================
    * 启动
    * =================================================================== */
